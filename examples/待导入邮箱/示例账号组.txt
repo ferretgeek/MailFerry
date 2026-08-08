@@ -1,0 +1,5 @@
+master@example.com----应用专用密码
+alias-one@example.com
+alias-two@example.com
+alias-three@example.com
+

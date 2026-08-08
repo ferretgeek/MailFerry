@@ -1,0 +1,69 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - name: Install audit tools
+        run: python -m pip install -r requirements-dev.txt
+      - name: Compile Python sources
+        run: python -m compileall -q pickup_server tests
+      - name: Run test suite
+        run: python -m unittest discover -s tests -v
+      - name: Lint source
+        run: ruff check pickup_server tests
+      - name: Audit dependencies
+        run: python -m pip_audit -r requirements.txt
+      - name: Scan source for secrets
+        run: |
+          detect-secrets scan --all-files pickup_server tests examples docs README.md README_EN.md SECURITY.md > /tmp/detect-secrets.json
+          python - <<'PY'
+          import json
+
+          with open("/tmp/detect-secrets.json", encoding="utf-8") as handle:
+              report = json.load(handle)
+          findings = sum(len(items) for items in report["results"].values())
+          if findings:
+              for filename, items in sorted(report["results"].items()):
+                  for item in items:
+                      print(f"{filename}:{item['line_number']}: {item['type']}")
+              raise SystemExit(f"detect-secrets found {findings} unresolved result(s)")
+          PY
+      - name: Run high-severity static security checks
+        run: bandit -q -lll -r pickup_server
+      - name: Verify public preview assets
+        run: |
+          python - <<'PY'
+          import struct
+          from pathlib import Path
+
+          def png_size(path):
+              data = path.read_bytes()
+              assert data.startswith(b"\x89PNG\r\n\x1a\n")
+              assert data[12:16] == b"IHDR"
+              return struct.unpack(">II", data[16:24])
+
+          social = Path("docs/images/social-preview.png")
+          dashboard = Path("docs/images/dashboard.png")
+          assert png_size(social) == (1280, 640)
+          assert png_size(dashboard)[0] >= 1280
+          assert social.stat().st_size < 1_000_000
+          assert Path("pickup_server/favicon.ico").stat().st_size > 1024
+          PY
