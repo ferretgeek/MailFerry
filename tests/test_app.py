@@ -148,8 +148,8 @@ class PickupAppTestCase(unittest.TestCase):
     def test_existing_token_recovers_after_pepper_change(self) -> None:
         _, mailbox_id, token = self.seed_group()
         app.ENV_CACHE = {
-            "PICKUP_SESSION_SECRET": "new-session-secret",
-            "PICKUP_TOKEN_PEPPER": "new-token-pepper",
+            "PICKUP_SESSION_SECRET": "new-session-secret",  # pragma: allowlist secret
+            "PICKUP_TOKEN_PEPPER": "new-token-pepper",  # pragma: allowlist secret
         }
 
         row = app.lookup_mailbox_by_token(token)
