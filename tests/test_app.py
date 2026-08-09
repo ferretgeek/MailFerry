@@ -293,12 +293,22 @@ class PickupAppTestCase(unittest.TestCase):
     def test_connect_imap_tries_backup_host_when_first_connection_fails(self) -> None:
         working = mock.Mock()
         working.login.return_value = ("OK", [b"logged in"])
-        with mock.patch.object(
-            app.imaplib,
-            "IMAP4_SSL",
-            side_effect=[OSError("first host down"), working],
-        ) as constructor:
-            result = app.connect_imap_client("example-only@outlook.com", "password")
+        with (
+            mock.patch.object(
+                app.imaplib,
+                "IMAP4_SSL",
+                side_effect=[OSError("first host down"), working],
+            ) as constructor,
+            mock.patch.object(
+                app,
+                "imap_servers_for_email",
+                return_value=[
+                    ("imap-a.example.test", 993),
+                    ("imap-b.example.test", 993),
+                ],
+            ),
+        ):
+            result = app.connect_imap_client("example-only@example.test", "password")
 
         self.assertIs(result, working)
         self.assertEqual(2, constructor.call_count)
