@@ -1,4 +1,4 @@
-# Mail Ferry / 信渡
+# Mail Ferry / 信渡 — Email Pickup Links
 
 [![CI](https://github.com/ferretgeek/MailFerry/actions/workflows/ci.yml/badge.svg)](https://github.com/ferretgeek/MailFerry/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/ferretgeek/MailFerry/actions/workflows/codeql.yml/badge.svg)](https://github.com/ferretgeek/MailFerry/actions/workflows/codeql.yml)
