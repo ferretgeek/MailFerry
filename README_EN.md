@@ -10,6 +10,12 @@
 
 Mail Ferry turns IMAP mailboxes into independent, revocable pickup links. It is self-hosted on a workstation or server and includes a pickup page, an admin dashboard, caching, health probes, and a read-only API—all with the Python standard library.
 
+## Interface tour
+
+![Mail Ferry authenticated dashboard and live operational metrics](docs/images/dashboard.png)
+
+![Mail Ferry admin sign-in](docs/images/login.png)
+
 ## At a glance
 
 - **Independent pickup links:** each recipient gets a cryptographically random URL that can be disabled or rotated on its own.

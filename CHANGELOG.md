@@ -1,5 +1,10 @@
 # 更新记录 / Changelog
 
+## Unreleased
+
+- 主页与社交预览改为登录后的真实管理后台；README 同时展示内部工作状态与登录入口，所有画面仅使用合成数据。
+- Replaced the profile and social preview with the authenticated dashboard, while keeping the sign-in view as a secondary README image. All visible data is synthetic.
+
 ## 1.0.0 - 2026-08-08
 
 - 以“信渡 / Mail Ferry”发布首个公开版本。
