@@ -52,6 +52,7 @@ class PickupAppTestCase(unittest.TestCase):
         app.ACCESS_EVENT_LAST.clear()
         app.FETCH_LOCKS.clear()
         app.REALTIME_FETCH_LIMITERS.clear()
+        app.LOGIN_FAILURES.clear()
         app.ensure_env()
         app.init_db()
 
@@ -331,6 +332,43 @@ class PickupAppTestCase(unittest.TestCase):
         self.assertEqual({"1": b"one", "2": b"two"}, result)
         self.assertEqual("2", client.uid.call_args_list[1].args[1])
 
+    def test_body_batches_skip_oversized_mail_and_bound_each_fetch(self) -> None:
+        client = mock.Mock()
+        size_rows = [
+            b"1 (UID 1 RFC822.SIZE 1024)",
+            b"2 (UID 2 RFC822.SIZE 7340032)",
+            b"3 (UID 3 RFC822.SIZE 2048)",
+        ]
+        client.uid.side_effect = [
+            ("OK", size_rows),
+            (
+                "OK",
+                [
+                    (b"1 (UID 1 BODY[] {3})", b"one"),
+                    (b"3 (UID 3 BODY[] {5})", b"three"),
+                ],
+            ),
+        ]
+
+        batches = list(app.imap_body_batches(client, [b"1", b"2", b"3"]))
+
+        self.assertEqual([{"1": b"one", "3": b"three"}], batches)
+        self.assertEqual("1,3", client.uid.call_args_list[1].args[1])
+
+    def test_login_reservation_is_atomic_and_proxy_identity_is_explicit(self) -> None:
+        for _ in range(8):
+            self.assertTrue(app.reserve_login_attempt("198.51.100.7"))
+        self.assertFalse(app.reserve_login_attempt("198.51.100.7"))
+        with mock.patch.object(app, "TRUSTED_PROXY_IPS", frozenset({"127.0.0.1"})):
+            self.assertEqual(
+                "198.51.100.8",
+                app.request_client_ip("127.0.0.1", "198.51.100.8"),
+            )
+            self.assertEqual(
+                "198.51.100.9",
+                app.request_client_ip("198.51.100.9", "198.51.100.8"),
+            )
+
     def test_uidvalidity_change_namespaces_old_uids_and_resets_cursor(self) -> None:
         group_id, _, _ = self.seed_group()
         with app.db() as conn:
@@ -376,6 +414,8 @@ class PickupAppTestCase(unittest.TestCase):
                         b"Subject: Junk verification code 654321\r\n\r\n"
                         b"Verification code: 654321"
                     )
+                    if "RFC822.SIZE" in str(args[-1]).upper():
+                        return "OK", [b"9 (UID 9 RFC822.SIZE 100)"]
                     return "OK", [(b"9 (UID 9 BODY[] {100})", raw)]
                 raise AssertionError((command, args))
 
@@ -417,6 +457,8 @@ class PickupAppTestCase(unittest.TestCase):
                         b"Subject: Spam verification code 112233\r\n\r\n"
                         b"Verification code: 112233"
                     )
+                    if "RFC822.SIZE" in str(args[-1]).upper():
+                        return "OK", [b"9 (UID 9 RFC822.SIZE 100)"]
                     return "OK", [(b"9 (UID 9 BODY[] {100})", raw)]
                 raise AssertionError((self.folder, command, args))
 
@@ -538,6 +580,7 @@ class PickupAppTestCase(unittest.TestCase):
                     raise AssertionError(command)
                 uid_values = [int(value) for value in str(args[0]).split(",") if value]
                 header_only = "HEADER" in str(args[1]).upper()
+                size_only = "RFC822.SIZE" in str(args[1]).upper()
                 payloads = []
                 for uid in uid_values:
                     recipient = (
@@ -551,6 +594,9 @@ class PickupAppTestCase(unittest.TestCase):
                     if not header_only:
                         body += f"\r\nVerification code: {100000 + uid}"
                     raw = body.encode("ascii")
+                    if size_only:
+                        payloads.append(f"{uid} (UID {uid} RFC822.SIZE {len(raw)})".encode("ascii"))
+                        continue
                     meta = f"{uid} (UID {uid} BODY[] {{{len(raw)}}})".encode("ascii")
                     payloads.append((meta, raw))
                 return "OK", payloads

@@ -22,6 +22,7 @@
 
 - 使用独立低权限系统用户并限制 `.env`、数据库与备份的文件权限；
 - 默认保持 `127.0.0.1` 监听，公网访问通过 HTTPS 反向代理；
+- 反向代理必须覆盖客户端传入的 `X-Forwarded-For`，并把代理自身的精确 IP 写入 `PICKUP_TRUSTED_PROXY_IPS`；
 - 使用独立后台密码，怀疑泄露时立即轮换密码、会话密钥和取件 token；
 - 不需要 IP 归属地时不要设置 `PICKUP_ENABLE_IP_GEO=1`；
 - 更新后核对 `/health`、`/ready`、后台登录和一条合成 canary 邮件链路；
@@ -32,3 +33,7 @@
 Security fixes target the latest release. Please report vulnerabilities through GitHub's private
 reporting feature and never disclose real mailboxes, app passwords, pickup tokens, environment
 files, databases, logs, server identities, or production screenshots in public issues.
+
+Only exact `PICKUP_TRUSTED_PROXY_IPS` may supply forwarded client identities. Full IMAP messages are
+size-checked and processed in bounded batches, while login hashing has atomic attempt reservations
+and a global concurrency cap.

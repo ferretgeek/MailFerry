@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- IMAP 正文改为先检查大小并按总字节预算逐批解析，避免跨批保留完整邮件。
+- 后台登录改为原子预留尝试次数、限制 PBKDF2 并发，并只信任显式配置的反向代理客户端地址。
+- 拒绝负数或无效 `Content-Length`，避免连接长期占用请求线程。
+- Full IMAP bodies are now size-checked and processed under per-message and per-batch memory budgets.
+- Admin login now reserves attempts atomically, caps PBKDF2 concurrency, trusts only configured proxies,
+  and rejects negative or malformed request lengths.
 - 主页与社交预览改为登录后的真实管理后台；README 同时展示内部工作状态与登录入口，所有画面仅使用合成数据。
 - Replaced the profile and social preview with the authenticated dashboard, while keeping the sign-in view as a secondary README image. All visible data is synthetic.
 

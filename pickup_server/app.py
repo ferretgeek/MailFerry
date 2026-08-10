@@ -64,6 +64,9 @@ EXTRA_FOLDER_CANDIDATES = ("Junk", "Spam", "Junk Email")
 IMAP_FETCH_RETRIES = 2
 IMAP_RETRY_DELAY_SECONDS = 0.15
 IMAP_CONNECT_TIMEOUT_SECONDS = 18
+IMAP_MAX_MESSAGE_BYTES = 5 * 1024 * 1024
+IMAP_BODY_BATCH_BYTES = 16 * 1024 * 1024
+IMAP_BODY_BATCH_COUNT = 10
 POLL_MAX_WORKERS = 4
 TOKEN_MISS_CACHE_SECONDS = 120
 TOKEN_MISS_CACHE_MAX = 50_000
@@ -116,6 +119,7 @@ INVALID_ACCESS_GUARD = threading.Lock()
 POLL_STOP = threading.Event()
 LOGIN_FAILURES: dict[str, list[float]] = {}
 LOGIN_FAILURES_GUARD = threading.Lock()
+LOGIN_HASH_LIMITER = threading.BoundedSemaphore(2)
 GEO_LOOKUP_INFLIGHT: set[str] = set()
 GEO_LOOKUP_GUARD = threading.Lock()
 ACCESS_PRUNE_LAST = 0.0
@@ -154,6 +158,50 @@ ENV_CACHE_LOCK = threading.Lock()
 
 def utc_now_ts() -> float:
     return time.time()
+
+
+def parse_trusted_proxy_ips(raw: str) -> frozenset[str]:
+    addresses: set[str] = set()
+    for item in raw.split(","):
+        value = item.strip()
+        if not value:
+            continue
+        try:
+            address = ipaddress.ip_address(value.split("%", 1)[0])
+        except ValueError as exc:
+            raise ValueError("PICKUP_TRUSTED_PROXY_IPS 只能包含 IP 字面量") from exc
+        if address.is_unspecified or address.is_multicast:
+            raise ValueError("PICKUP_TRUSTED_PROXY_IPS 包含不安全地址")
+        addresses.add(str(address))
+    return frozenset(addresses)
+
+
+TRUSTED_PROXY_IPS = parse_trusted_proxy_ips(os.environ.get("PICKUP_TRUSTED_PROXY_IPS", ""))
+
+
+def normalized_ip(value: str) -> str:
+    try:
+        return str(ipaddress.ip_address(value.split("%", 1)[0]))
+    except ValueError:
+        return "unknown"
+
+
+def request_client_ip(peer: str, forwarded_for: str | None) -> str:
+    direct = normalized_ip(peer)
+    if direct not in TRUSTED_PROXY_IPS or not forwarded_for:
+        return direct
+    raw_hops = [item.strip() for item in forwarded_for.split(",")]
+    if not raw_hops or len(raw_hops) > 32:
+        return direct
+    hops = [normalized_ip(item) for item in raw_hops]
+    if "unknown" in hops:
+        return direct
+    current = direct
+    for candidate in reversed(hops):
+        if current not in TRUSTED_PROXY_IPS:
+            break
+        current = candidate
+    return current
 
 
 def iso_from_ts(ts: float | None) -> str:
@@ -872,6 +920,46 @@ def imap_fetch_map(client: imaplib.IMAP4_SSL, uids: list[bytes], data_items: str
     return result
 
 
+def imap_fetch_sizes(client: imaplib.IMAP4_SSL, uids: list[bytes]) -> dict[str, int]:
+    sizes: dict[str, int] = {}
+    for start in range(0, len(uids), 80):
+        uid_set = b",".join(uids[start : start + 80]).decode("ascii", errors="ignore")
+        typ, fetch_data = client.uid("FETCH", uid_set, "(UID RFC822.SIZE)")
+        if typ != "OK":
+            raise RuntimeError("IMAP SIZE FETCH 返回非 OK")
+        for item in fetch_data:
+            meta = item[0] if isinstance(item, tuple) else item
+            if not isinstance(meta, bytes):
+                continue
+            text = meta.decode("ascii", errors="ignore")
+            uid_match = re.search(r"\bUID\s+(\d+)\b", text)
+            size_match = re.search(r"\bRFC822\.SIZE\s+(\d+)\b", text)
+            if uid_match and size_match:
+                sizes[uid_match.group(1)] = int(size_match.group(1))
+    return sizes
+
+
+def imap_body_batches(client: imaplib.IMAP4_SSL, uids: list[bytes]):
+    sizes = imap_fetch_sizes(client, uids)
+    batch: list[bytes] = []
+    batch_bytes = 0
+    for uid in uids:
+        raw_uid = uid.decode("ascii", errors="ignore")
+        size = sizes.get(raw_uid, 0)
+        if size <= 0 or size > IMAP_MAX_MESSAGE_BYTES:
+            continue
+        if batch and (
+            len(batch) >= IMAP_BODY_BATCH_COUNT or batch_bytes + size > IMAP_BODY_BATCH_BYTES
+        ):
+            yield imap_fetch_map(client, batch, "UID BODY.PEEK[]")
+            batch = []
+            batch_bytes = 0
+        batch.append(uid)
+        batch_bytes += size
+    if batch:
+        yield imap_fetch_map(client, batch, "UID BODY.PEEK[]")
+
+
 
 def existing_message_keys(
     conn: sqlite3.Connection,
@@ -1132,21 +1220,24 @@ def fetch_extra_folder_messages(
             selected = [
                 item for item in matched if item[2] not in known
             ][:EXTRA_FOLDER_BODY_LIMIT]
-            body_map = imap_fetch_map(
-                client,
-                [uid_bytes for _, uid_bytes, _ in selected],
-                "UID BODY.PEEK[]",
-            )
-            for _, uid_bytes, storage_key in selected:
-                raw_uid = uid_bytes.decode("ascii", errors="replace")
-                raw = body_map.get(raw_uid)
-                if not raw:
-                    partial = True
-                    continue
-                try:
-                    rows.append(parse_message(storage_key, raw, group_id))
-                except Exception:
-                    partial = True
+            storage_keys = {
+                uid_bytes.decode("ascii", errors="replace"): storage_key
+                for _, uid_bytes, storage_key in selected
+            }
+            received: set[str] = set()
+            for body_map in imap_body_batches(client, [item[1] for item in selected]):
+                for raw_uid, raw in body_map.items():
+                    storage_key = storage_keys.get(raw_uid)
+                    if not storage_key or len(raw) > IMAP_MAX_MESSAGE_BYTES:
+                        partial = True
+                        continue
+                    received.add(raw_uid)
+                    try:
+                        rows.append(parse_message(storage_key, raw, group_id))
+                    except Exception:
+                        partial = True
+            if received != set(storage_keys):
+                partial = True
         except Exception:
             partial = True
         all_rows.extend(rows)
@@ -1368,18 +1459,17 @@ def refresh_group_recent(
                     known_uids,
                     requested,
                 )
-                body_map = imap_fetch_map(client, selected, "UID BODY.PEEK[]")
                 missing_bodies = {
                     uid_bytes.decode("ascii", errors="replace")
                     for uid_bytes in selected
-                    if uid_bytes.decode("ascii", errors="replace") not in body_map
                 }
-                for uid_bytes in selected:
-                    uid = uid_bytes.decode("ascii", errors="replace")
-                    raw_bytes = body_map.get(uid, b"")
-                    if raw_bytes:
+                for body_map in imap_body_batches(client, selected):
+                    for uid, raw_bytes in body_map.items():
+                        if len(raw_bytes) > IMAP_MAX_MESSAGE_BYTES:
+                            continue
                         try:
                             rows.append(parse_message(uid, raw_bytes, group_id))
+                            missing_bodies.discard(uid)
                         except Exception:
                             missing_bodies.add(uid)
                 extra_rows, extra_scanned, extra_partial = fetch_extra_folder_messages(
@@ -1698,19 +1788,17 @@ def fetch_group(group_id: int, force: bool = False) -> dict[str, object]:
                 )
                 selected_entries = unknown_matched[:scan_limit]
                 selected = [uid_bytes for _, _, uid_bytes in selected_entries]
-                body_map = imap_fetch_map(client, selected, "UID BODY.PEEK[]")
                 rows: list[dict[str, object]] = []
-                missing_body_uids: set[int] = set()
-                for uid_bytes in selected:
-                    uid = uid_bytes.decode("ascii", errors="replace")
-                    raw_bytes = body_map.get(uid, b"")
-                    if raw_bytes:
+                missing_body_uids = {uid_number(uid_bytes) for uid_bytes in selected}
+                for body_map in imap_body_batches(client, selected):
+                    for uid, raw_bytes in body_map.items():
+                        if len(raw_bytes) > IMAP_MAX_MESSAGE_BYTES:
+                            continue
                         try:
                             rows.append(parse_message(uid, raw_bytes, group_id))
+                            missing_body_uids.discard(uid_number(uid))
                         except Exception:
-                            missing_body_uids.add(uid_number(uid_bytes))
-                    else:
-                        missing_body_uids.add(uid_number(uid_bytes))
+                            missing_body_uids.add(uid_number(uid))
 
                 stored_uid_numbers = {uid_number(str(row["uid"])) for row in rows}
                 pending_new_uids = {
@@ -2490,25 +2578,30 @@ def admin_login(password: str) -> bool:
     return bool(encoded and verify_password(password, encoded))
 
 
-def login_limited(ip: str) -> bool:
+def reserve_login_attempt(ip: str) -> bool:
     cutoff = utc_now_ts() - 10 * 60
     with LOGIN_FAILURES_GUARD:
         failures = [ts for ts in LOGIN_FAILURES.get(ip, []) if ts >= cutoff]
-        LOGIN_FAILURES[ip] = failures
-        return len(failures) >= 8
-
-
-def record_login_failure(ip: str) -> None:
-    cutoff = utc_now_ts() - 10 * 60
-    with LOGIN_FAILURES_GUARD:
-        failures = [ts for ts in LOGIN_FAILURES.get(ip, []) if ts >= cutoff]
+        if len(failures) >= 8:
+            LOGIN_FAILURES[ip] = failures
+            return False
         failures.append(utc_now_ts())
         LOGIN_FAILURES[ip] = failures
+        return True
 
 
 def clear_login_failures(ip: str) -> None:
     with LOGIN_FAILURES_GUARD:
         LOGIN_FAILURES.pop(ip, None)
+
+
+def cancel_login_attempt(ip: str) -> None:
+    with LOGIN_FAILURES_GUARD:
+        failures = LOGIN_FAILURES.get(ip, [])
+        if failures:
+            failures.pop()
+        if not failures:
+            LOGIN_FAILURES.pop(ip, None)
 
 
 def public_base_url() -> str:
@@ -3671,8 +3764,11 @@ FAVICON_ICO_PATH = Path(__file__).with_name("favicon.ico")
 
 
 def json_body(handler: BaseHTTPRequestHandler) -> dict[str, object]:
-    length = int(handler.headers.get("Content-Length", "0") or "0")
-    if length > 1_000_000:
+    try:
+        length = int(handler.headers.get("Content-Length", "0") or "0")
+    except ValueError as exc:
+        raise ValueError("请求体长度无效") from exc
+    if length < 0 or length > 1_000_000:
         raise ValueError("请求体过大")
     raw = handler.rfile.read(length) if length else b"{}"
     if not raw:
@@ -3975,25 +4071,36 @@ class PickupHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         path = urllib.parse.urlparse(self.path).path
         if path == "/admin/login":
-            length = int(self.headers.get("Content-Length", "0") or "0")
-            if length > 100_000:
+            try:
+                length = int(self.headers.get("Content-Length", "0") or "0")
+            except ValueError:
+                self.send_html(LOGIN_HTML.replace("__ERROR__", "请求体长度无效"), status=400)
+                return
+            if length < 0 or length > 100_000:
                 self.send_html(LOGIN_HTML.replace("__ERROR__", "请求体过大"), status=413)
                 return
             raw = self.rfile.read(length).decode("utf-8", errors="replace")
             data = urllib.parse.parse_qs(raw)
             password = data.get("password", [""])[0]
-            ip = self.client_address[0]
-            if login_limited(ip):
+            ip = request_client_ip(self.client_address[0], self.headers.get("X-Forwarded-For"))
+            if not reserve_login_attempt(ip):
                 self.send_html(LOGIN_HTML.replace("__ERROR__", "登录尝试过多，请稍后再试"), status=429)
                 return
-            if admin_login(password):
+            if not LOGIN_HASH_LIMITER.acquire(timeout=2):
+                cancel_login_attempt(ip)
+                self.send_html(LOGIN_HTML.replace("__ERROR__", "登录服务繁忙，请稍后再试"), status=503)
+                return
+            try:
+                authenticated = admin_login(password)
+            finally:
+                LOGIN_HASH_LIMITER.release()
+            if authenticated:
                 clear_login_failures(ip)
                 self.send_response(302)
                 self.send_header("Location", "/admin")
                 self.send_header("Set-Cookie", admin_cookie(make_session(), 12 * 3600))
                 self.end_headers()
                 return
-            record_login_failure(ip)
             self.send_html(LOGIN_HTML.replace("__ERROR__", "密码不正确"), status=403)
             return
         if path == "/admin/logout":
