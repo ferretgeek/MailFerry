@@ -67,7 +67,7 @@ def seed() -> None:
             )
             mailboxes.append((int(mailbox.lastrowid), email))
         messages = (
-            ("m-1", "欢迎来到信渡", "hello@example.test", "你的取件空间已经准备好。", mailboxes[0][1]),
+            ("m-1", "取件空间已就绪", "hello@example.test", "打开这条链接就能收到验证码。", mailboxes[0][1]),
             ("m-2", "登录验证码 482 731", "security@example.test", "验证码 482 731，十分钟内有效。", mailboxes[1][1]),
             ("m-3", "每周摘要", "notes@example.test", "本周一共接住了 18 封新邮件。", mailboxes[0][1]),
         )

@@ -1,6 +1,6 @@
-# 信渡维护规则
+# 邮件取件链接维护规则
 
-本文件适用于“信渡 / Mail Ferry”。修改前先阅读 `README.md`、`README_EN.md`、
+本文件适用于“邮件取件链接 / IMAP pickup links”。修改前先阅读 `README.md`、`README_EN.md`、
 `SECURITY.md` 与 `docs/发布审计.md`。
 
 ## 产品与兼容性

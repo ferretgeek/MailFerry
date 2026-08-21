@@ -139,7 +139,7 @@ class PickupAppTestCase(unittest.TestCase):
             server.server_close()
             thread.join(timeout=2)
 
-        self.assertIn("信渡 · 管理后台", page)
+        self.assertIn("邮件取件链接 · 管理后台", page)
         self.assertIn("天际蓝", page)
         self.assertIn("深灰夜色", page)
         self.assertNotIn("<!-- THEME_", page)

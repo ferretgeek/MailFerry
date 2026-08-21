@@ -2886,7 +2886,7 @@ PICKUP_HTML = r"""<!doctype html>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#eaf4f7">
-  <title>信渡 · 取件邮箱</title>
+  <title>取件邮箱</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <link rel="icon" href="/favicon.ico" sizes="any">
   <!-- THEME_HEAD_SCRIPT -->
@@ -3009,7 +3009,7 @@ PICKUP_HTML = r"""<!doctype html>
   <main class="wrap">
     <section class="hero">
       <div>
-        <h1>信渡 · 取件邮箱</h1>
+        <h1>取件邮箱</h1>
         <div class="mail" id="email">正在载入</div>
       </div>
       <div class="status">
@@ -3081,7 +3081,7 @@ ADMIN_HTML = r"""<!doctype html>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#eaf4f7">
-  <title>信渡 · 管理后台</title>
+  <title>邮件取件链接 · 管理后台</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <link rel="icon" href="/favicon.ico" sizes="any">
   <!-- THEME_HEAD_SCRIPT -->
@@ -3285,7 +3285,7 @@ ADMIN_HTML = r"""<!doctype html>
   <main class="app">
     <header>
       <div>
-        <h1>信渡 · 管理后台</h1>
+        <h1>邮件取件链接 · 管理后台</h1>
         <div class="sub" id="base"></div>
       </div>
       <div class="toolbar">
@@ -3644,7 +3644,7 @@ LOGIN_HTML = r"""<!doctype html>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#eaf4f7">
-  <title>信渡 · 后台登录</title>
+  <title>邮件取件链接 · 后台登录</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <link rel="icon" href="/favicon.ico" sizes="any">
   <!-- THEME_HEAD_SCRIPT -->
@@ -3726,7 +3726,7 @@ LOGIN_HTML = r"""<!doctype html>
       <img src="/favicon.svg" alt="" width="46" height="46">
       <span>SELF-HOSTED MAIL PICKUP</span>
     </div>
-    <h1>信渡 · 管理后台</h1>
+    <h1>邮件取件链接 · 管理后台</h1>
     <p>让每一封来信，都抵达它该去的地方。</p>
     <form method="post" action="/admin/login">
       <input name="password" type="password" autocomplete="current-password" aria-label="后台密码" placeholder="后台密码" autofocus>

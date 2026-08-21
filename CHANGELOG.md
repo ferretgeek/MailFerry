@@ -13,7 +13,7 @@
 
 ## 1.0.0 - 2026-08-08
 
-- 以“信渡 / Mail Ferry”发布首个公开版本。
+- 以“邮件取件链接 / IMAP pickup links”发布首个公开版本。
 - 提供独立取件链接、IMAP 分组隔离、后台管理、访问统计、健康检查和只读 API。
 - 增加天际蓝、青岚绿、霞光橙与深灰夜色四套全局主题，并保存用户选择。
 - 增加 SVG 与 ICO 浏览器图标、响应式桌面和移动界面。
@@ -23,7 +23,7 @@
 
 ---
 
-- First public release under the Mail Ferry / 信渡 name.
+- First public release under the IMAP pickup links name.
 - Ships isolated pickup links, an IMAP-backed cache, dashboard analytics, health probes, and a
   read-only API.
 - Adds four persistent global themes, responsive UI, SVG/ICO favicons, secure local-only defaults,
